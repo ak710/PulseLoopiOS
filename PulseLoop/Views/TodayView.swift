@@ -115,7 +115,7 @@ struct TodayView: View {
                         readiness: summary.readiness,
                         progress: summary.readinessProgress,
                         calibration: summary.calibration,
-                        onTap: {}
+                        onTap: { path.append(AppRoute.readinessDetail) }
                     )
                 }
 
