@@ -243,6 +243,14 @@ struct ReadinessSnapshot: Equatable {
         contributors.filter { $0.drag > 0 }.max { $0.drag < $1.drag }
     }
 
+    /// Contributors with no row in the stored breakdown — i.e. what the ring didn't capture. Named
+    /// explicitly rather than left implicit: "your temperature was fine" and "your temperature
+    /// wasn't measured" are different claims, and only one of them is true here.
+    var missingKinds: [ReadinessContributor.Kind] {
+        let present = Set(contributors.compactMap(\.kind))
+        return ReadinessContributor.Kind.allCases.filter { !present.contains($0) }
+    }
+
     @MainActor
     init(_ row: ReadinessDaily) {
         date = row.date

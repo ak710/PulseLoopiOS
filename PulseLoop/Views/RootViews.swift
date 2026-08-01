@@ -89,6 +89,9 @@ struct RootAppView: View {
                 if UserDefaults.standard.bool(forKey: "openReadinessSettings") {
                     path.append(AppRoute.settingsReadiness)
                 }
+                if UserDefaults.standard.bool(forKey: "openReadiness") {
+                    path.append(AppRoute.readinessDetail)
+                }
                 // Test tooling: deep-link straight to a seeded workout's detail (route map).
                 if UserDefaults.standard.bool(forKey: "openWorkout"),
                    let session = ActivityRepository.sessions(context: modelContext).first(where: { $0.status == .finished && $0.useGps }) {
@@ -168,6 +171,8 @@ struct RootAppView: View {
                     NutritionSettingsView()
                 case .settingsReadiness:
                     ReadinessSettingsView()
+                case .readinessDetail:
+                    ReadinessDetailView(path: $path)
                 case .nutrition:
                     NutritionView(path: $path)
                 case let .mealDetail(id):
