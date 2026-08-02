@@ -145,6 +145,36 @@ rather than silently reinterpreting old scores under new rules.
 
 Readiness scores are included in the full-data JSON export (format version 2 and later).
 
+## Check-ins and the drop alert
+
+Two notification surfaces, both behind **Mention in check-ins** in Readiness settings, which itself
+only applies when readiness is shared with the coach.
+
+Daily check-ins receive this morning's score, its contributor breakdown, and the previous 14
+mornings' scores. The history is notification-only: the chat coach reaches history through
+`get_readiness`, but a push notification is written in one shot with no tool call available to it,
+so a "you're below your usual" line needs that window to arrive in the packet or not at all.
+
+A **sharp drop** can also raise a proactive alert on its own. It has to clear four gates together:
+
+| Gate | Value | Why |
+|---|---|---|
+| Below recent median | ≥ 15 points | Roughly a full band — a drop visible in the tile, not only to a detector |
+| Prior scored mornings | ≥ 7 | Fewer, and "typical" is itself noise |
+| Coverage | ≥ 0.70 | Stricter than the 0.50 needed to score at all |
+| Band | Moderate or Rest needed | 98 → 80 is still a good morning |
+
+The reference is a **median**, so one washed-out morning can't drag it, and it **excludes today** —
+including today would damp the very deviation the comparison exists to notice. Someone whose scores
+are consistently low is never alerted: the comparison is always against their own history, never an
+absolute cutoff.
+
+When it fires, the alert cites the largest contributor using the explanation the app already
+computed, rather than leaving the generator to guess at a cause. It takes precedence over the
+short-sleep alert, since sleep is 30 of readiness's 100 points and a bad night trips both — only one
+alert is ever sent, and this is the one that can name the real factor. Low blood oxygen still
+outranks both.
+
 ## Known limitations
 
 Stated plainly, because the point of this page is that you can judge the number for yourself:

@@ -69,6 +69,13 @@ enum CoachNotificationGenerator {
                                      body: anomaly.facts,
                                      tip: "Rest a moment and re-measure when you're settled.",
                                      followUp: "Want to talk through what might affect your readings?")
+        case .readinessDrop:
+            // `facts` already names the score, the size of the drop and the contributor behind it,
+            // so the fallback stays a wrapper around real numbers rather than inventing a reason.
+            return CoachNotification(title: "Take today a little easier",
+                                     body: anomaly.facts,
+                                     tip: "Keep it light today and let your body catch up.",
+                                     followUp: "Want to look at what's driving it?")
         case .poorSleep:
             return CoachNotification(title: "Short night",
                                      body: anomaly.facts,

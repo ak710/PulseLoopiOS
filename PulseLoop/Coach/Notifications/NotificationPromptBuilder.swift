@@ -35,6 +35,10 @@ enum NotificationPromptBuilder {
         - When a `nutrition` block is present, you may briefly relate intake to the eating goal (e.g. calories left) — \
         matter-of-fact, never shaming, and no false precision on days with estimated meals. \
         `goals.calorie_intake_daily` is the EATING goal; `today.calories` is energy burned.
+        - When a `readiness` block is present it is the single strongest read on how recovered the user is — prefer it as the check-in's angle whenever it's notable. \
+        `readiness.today.contributors` already explains why the score is what it is, so cite that reason rather than inventing one, \
+        and read `readiness.today.not_measured` as "the ring didn't capture this", never as "this was fine". \
+        `readiness.recent_scores` is the user's own recent history, most recent first — use it to say whether today is typical for them, and never compare them to anyone else.
         - If conditions are extreme (very hot, very cold, storms, heavy rain), call it out with one practical adjustment — hydrate more, layer up, or move indoors.
         - Never name a location finer than the city.
         - A coaching angle and your recent check-ins are provided — vary your voice and structure; never open two check-ins the same way.
@@ -72,6 +76,8 @@ enum NotificationPromptBuilder {
         - Calm, supportive, NON-alarming. This is wellness guidance, not a diagnosis. Never imply emergency or disease.
         - Use only the provided facts and numbers — never invent or escalate.
         - If a reading could be a measurement glitch, it's fine to suggest re-measuring.
+        - A drop in a recovery or readiness score is a cue to take the day easier, not a warning sign. \
+        Frame it as one lighter day and pair it with the specific factor named in the facts — never as something being wrong with the user.
         """
     }
 
