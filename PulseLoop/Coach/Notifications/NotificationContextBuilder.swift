@@ -33,6 +33,27 @@ struct NotificationContextPacket: Encodable {
     /// baseline is already learned and persisted by `RestingHRBaselineService`, so the packet just
     /// carries it in alongside the single night to compare it to.
     var restingHR: RestingHRContext?
+    /// Last night's overnight signals against their own 30-day baselines. Present only when at
+    /// least two of them had a baseline to be judged against.
+    var healthWatch: HealthWatchContext?
+
+    struct HealthWatchContext: Encodable {
+        var status: String
+        var signalsAvailable: Int
+        /// Only the signals that departed far enough to count, worst first.
+        var flagged: [HealthWatchSignal]
+        /// The already-grounded sentence, so the model restates rather than re-derives it.
+        var facts: String
+    }
+
+    /// One departed signal. A sibling of `HealthWatchContext` rather than nested inside it, to stay
+    /// within SwiftLint's one-level nesting rule.
+    struct HealthWatchSignal: Encodable {
+        var signal: String
+        var value: Double
+        var baseline: Double
+        var detail: String
+    }
 
     struct RestingHRContext: Encodable {
         /// The learned 10th-percentile resting HR over 30 days. Non-nil implies established —
@@ -82,7 +103,27 @@ enum NotificationContextBuilder {
             dataQualityWarnings: packet.dataQualityWarnings,
             environment: environment,
             nutrition: packet.nutrition,
-            restingHR: restingHR(context: context, now: now)
+            restingHR: restingHR(context: context, now: now),
+            healthWatch: healthWatch(context: context, now: now)
+        )
+    }
+
+    /// Last night's overnight signals against their own baselines, or nil when fewer than two could
+    /// be judged — see `HealthWatch.minSignals`.
+    static func healthWatch(
+        context: ModelContext, now: Date = Date()
+    ) -> NotificationContextPacket.HealthWatchContext? {
+        guard let result = HealthWatchService.evaluate(now: now, context: context),
+              result.signalsAvailable >= HealthWatch.minSignals else { return nil }
+
+        return .init(
+            status: result.status.rawValue,
+            signalsAvailable: result.signalsAvailable,
+            flagged: result.flagged.map {
+                .init(signal: $0.signal.title, value: ($0.value * 10).rounded() / 10,
+                      baseline: ($0.baseline * 10).rounded() / 10, detail: $0.detail)
+            },
+            facts: HealthWatch.facts(result)
         )
     }
 

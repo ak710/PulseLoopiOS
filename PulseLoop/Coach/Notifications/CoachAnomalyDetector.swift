@@ -6,6 +6,8 @@ enum CoachAnomalyKind: String, Codable, Equatable {
     case poorSleep
     /// Last night's resting HR sitting well above the learned 30-day baseline.
     case restingHRDrift
+    /// Several overnight signals departing from their own baselines together.
+    case healthWatch
 }
 
 struct CoachAnomaly: Equatable {
@@ -58,13 +60,33 @@ enum CoachAnomalyDetector {
             )
         }
 
-        // 3. Resting-HR drift. Ordered last of the three deliberately: a short or broken night
-        //    usually raises resting HR too, so when both trip, the sleep alert names the cause and
-        //    this one would only restate its consequence. `detect` returns at most one anomaly, so
-        //    this is a precedence choice between two messages about the same night.
+        // 3. Health Watch — several overnight signals departing together. Outranks resting-HR drift
+        //    below because drift is *one of its own signals*: when both trip, the multi-signal
+        //    result is strictly the better-corroborated message about the same night, and firing
+        //    the single-signal one instead would understate what was actually seen.
+        if let watch = healthWatch(packet) { return watch }
+
+        // 4. Resting-HR drift on its own — the case where resting HR moved but nothing corroborated
+        //    it, or where it was the only signal with a baseline at all (a jring with a week of wear
+        //    can reach this while Health Watch is still short of two judgeable signals).
         if let drift = restingHRDrift(packet, now: now) { return drift }
 
         return nil
+    }
+
+    // MARK: - Health Watch
+
+    /// Fires on a `major` result only.
+    ///
+    /// `minor` is deliberately silent: it means two signals nudged past their notable knots, which
+    /// happens after a glass of wine or a warm room often enough that alerting on it would train the
+    /// user to dismiss the ones that matter. The minor result still reaches the Today card and the
+    /// coach — it just doesn't interrupt.
+    private static func healthWatch(_ packet: NotificationContextPacket) -> CoachAnomaly? {
+        guard let watch = packet.healthWatch,
+              watch.status == HealthWatch.Status.major.rawValue,
+              !watch.flagged.isEmpty else { return nil }
+        return CoachAnomaly(kind: .healthWatch, facts: watch.facts)
     }
 
     // MARK: - Resting-HR drift

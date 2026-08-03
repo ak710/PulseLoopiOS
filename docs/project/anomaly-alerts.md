@@ -102,25 +102,96 @@ detector usable on both while still refusing to call a handful of readings a res
 there is nothing trustworthy to compare against and this detector stays silent — it does not fall
 back to a population average.
 
+### 4. Health Watch — `healthWatch`
+
+| | |
+|---|---|
+| **Signal** | Five overnight signals, each against its own 30-day baseline |
+| **Fires when** | The night scores **major** (see below) |
+| **Gates** | At least 2 signals had an established baseline |
+| **Rings** | Any — it uses whichever signals your ring can produce |
+
+PulseLoop's equivalent of Oura's Symptom Radar or Ultrahuman's Sleep Screener. **It never names a
+condition, and the copy names the mundane explanations first** — alcohol, a warm room, and a hard
+session the day before all look identical to the early hours of an infection.
+
+#### The signals, and their direction
+
+Only the side that indicates strain counts. A resting HR below baseline, an HRV above it, or a
+cooler night are not warning signs, and flagging them would turn good news into an alert.
+
+| Signal | Direction | Notable | Strong |
+|---|---|---|---|
+| Skin temperature | above baseline | +0.5 °C | +1.0 °C |
+| Resting heart rate | above baseline | +5 bpm | +10 bpm |
+| HRV | below baseline | −15 % | −30 % |
+| Breathing rate | above baseline | +2 brpm | +4 brpm |
+| Blood oxygen | below baseline | −2 pts | −4 pts |
+
+HRV's knots are proportional rather than absolute because HRV spans roughly an order of magnitude
+across healthy adults; the rest are absolute steps.
+
+#### Scoring
+
+Each signal scores 0 (normal), 1 (notable) or 2 (strong). The night's total decides:
+
+| Total | Status | Alert? |
+|---|---|---|
+| 0–1 | No signs of strain | — |
+| 2 | Minor signs | No — card and coach only |
+| ≥ 3 | Major signs | Yes |
+
+**A single notable signal never counts.** One reading nudging past its knot is a warm duvet or one
+restless hour; the whole point of a multi-signal detector is that it waits for agreement. A single
+*strong* signal scores 2 and lands at minor — a full degree of overnight temperature rise is not
+noise, but it is not enough to interrupt for on its own either.
+
+**Only `major` fires an alert.** Minor means two signals nudged past their knots, which happens after
+a glass of wine often enough that alerting on it would train you to dismiss the ones that matter.
+
+#### How the values and baselines are built
+
+Both are measured **over the night itself**, bounded by the sleep session rather than a fixed clock
+window — so a late night or a shift schedule is measured over the hours actually slept.
+
+- Heart rate uses the **10th percentile** of the night, matching how the long-run resting baseline is
+  built, so the two are the same quantity. Every other signal uses the night's mean.
+- A baseline is the **median of the preceding nights' figures** — not a mean of every sample. One
+  night the ring recorded four times as often as usual would otherwise dominate a raw sample mean,
+  and a single feverish night would drag the very baseline it needs to be judged against.
+- A baseline needs **7 nights**; a night's figure needs **6 readings** (a YCBT ring floors its
+  interval at 30 minutes, so a full night is only ~14 samples there).
+
+#### On the Today screen
+
+The card is **conditional**: a clear night renders nothing at all. A permanent "all clear" tile would
+be clutter on an already-dense grid, and would train people to stop reading it.
+
 ## Precedence
 
 `detect` returns at most one anomaly, checked in this order:
 
-1. `lowSpO2` — the most clinically meaningful of the three.
+1. `lowSpO2` — the most clinically meaningful of the four.
 2. `poorSleep` — fires right after a sleep download, when it is most actionable.
-3. `restingHRDrift`.
+3. `healthWatch`.
+4. `restingHRDrift`.
 
-Drift is last **by design**. A short or broken night usually raises resting HR as well, so when both
-trip, the sleep alert names the cause while drift would only restate its consequence. This is a
-choice between two messages about the same night, not a suppressed alert.
+Sleep outranks the two baseline detectors because a short or broken night usually raises resting HR
+as well — when both trip, the sleep alert names the cause while the others would restate its
+consequence.
+
+Health Watch outranks resting-HR drift because **drift is one of its own signals**. When both trip,
+the multi-signal result is strictly the better-corroborated message about the same night, and firing
+the single-signal one instead would understate what was actually seen. Drift still fires on its own
+when resting HR moved and nothing corroborated it — or when it was the only signal with a baseline
+at all, which a ring with fewer sensors reaches while Health Watch is still short of two.
 
 ## What is deliberately not a detector
 
-- **Temperature deviation.** Ring skin temperature is a strong illness signal, but not every
-  supported ring has the sensor, and a single-signal temperature alert produces too many false
-  alarms from a warm room or a duvet. It belongs in a multi-signal detector, not on its own.
-- **HRV drops.** HRV is noisy enough night-to-night that a single-night drop is usually not a
-  signal, and it moves for the same reasons resting HR does — so an HRV alert would mostly
-  double-report drift.
+- **Temperature deviation on its own**, and **HRV drops on their own.** Both are real illness
+  signals, but each is far too noisy alone — a warm room moves temperature, and HRV swings
+  night-to-night in healthy people. They belong inside Health Watch, where they only speak when
+  something else agrees, and that is where they now live.
 - **Anything resembling a diagnosis.** No detector names a condition, and none ever will on
-  wellness-grade optical hardware.
+  wellness-grade optical hardware. Health Watch reports that signals moved together and lists the
+  ordinary explanations first.
