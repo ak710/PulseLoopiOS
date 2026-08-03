@@ -208,9 +208,15 @@ final class HealthSyncService {
                                  counts: inout SyncCounts, now: Date, device: HKDevice?) async throws {
         let raw = kind.rawValue
         let mockRaw = MeasurementSource.mock.rawValue
+        // Rows read *in* from Health are never written back out. Without this the two directions
+        // close a loop: import a CGM reading, export it as ours, import it again.
+        let importedRaw = MeasurementSource.appleHealth.rawValue
         let watermark = state.measurementWatermarks[raw] ?? .distantPast
         let descriptor = FetchDescriptor<Measurement>(
-            predicate: #Predicate { $0.kindRaw == raw && $0.sourceRaw != mockRaw && $0.createdAt > watermark },
+            predicate: #Predicate {
+                $0.kindRaw == raw && $0.sourceRaw != mockRaw && $0.sourceRaw != importedRaw
+                    && $0.createdAt > watermark
+            },
             sortBy: [SortDescriptor(\.createdAt, order: .forward)]
         )
         let rows = (try? context.fetch(descriptor)) ?? []
@@ -272,10 +278,15 @@ final class HealthSyncService {
         let systolicRaw = MeasurementKind.bloodPressureSystolic.rawValue
         let diastolicRaw = MeasurementKind.bloodPressureDiastolic.rawValue
         let mockRaw = MeasurementSource.mock.rawValue
+        // Same loop guard as the quantity path: never export what was read in from Health.
+        let importedRaw = MeasurementSource.appleHealth.rawValue
         let watermark = state.measurementWatermarks[watermarkKey] ?? .distantPast
 
         let systolicDescriptor = FetchDescriptor<Measurement>(
-            predicate: #Predicate { $0.kindRaw == systolicRaw && $0.sourceRaw != mockRaw && $0.createdAt > watermark },
+            predicate: #Predicate {
+                $0.kindRaw == systolicRaw && $0.sourceRaw != mockRaw && $0.sourceRaw != importedRaw
+                    && $0.createdAt > watermark
+            },
             sortBy: [SortDescriptor(\.createdAt, order: .forward)]
         )
         let systolicRows = (try? context.fetch(systolicDescriptor)) ?? []
@@ -288,7 +299,7 @@ final class HealthSyncService {
               let spanEnd = systolicRows.map(\.timestamp).max() else { return }
         let diastolicDescriptor = FetchDescriptor<Measurement>(
             predicate: #Predicate {
-                $0.kindRaw == diastolicRaw && $0.sourceRaw != mockRaw
+                $0.kindRaw == diastolicRaw && $0.sourceRaw != mockRaw && $0.sourceRaw != importedRaw
                     && $0.timestamp >= spanStart && $0.timestamp <= spanEnd
             }
         )

@@ -12,6 +12,7 @@ struct AppleHealthSettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(RingBLEClient.self) private var ble
     @State private var service = HealthSyncService.shared
+    @State private var importService = HealthImportService.shared
     @State private var store = AppleHealthPrefsStore.shared
     /// First-enable backfill choice ("all history" vs "new only" vs cancel).
     @State private var showBackfillDialog = false
@@ -46,6 +47,11 @@ struct AppleHealthSettingsView: View {
                 workoutsGroup
                     .disabled(!masterOn)
                     .opacity(masterOn ? 1 : 0.5)
+
+                // Import stands on its own, deliberately not gated on the export master toggle:
+                // "show my ring data elsewhere" and "let other apps' data in" are separate
+                // decisions, and bundling them would make one of them implicit.
+                importGroup
 
                 actionsGroup
                     .disabled(!masterOn)
@@ -209,6 +215,44 @@ struct AppleHealthSettingsView: View {
     }
 
     // MARK: - Bindings & actions
+
+    /// Reading *from* Health — the direction that brings a CGM's glucose and a smart scale's weight
+    /// into PulseLoop. Off by default; enabling it requests read-only access and nothing else.
+    @ViewBuilder private var importGroup: some View {
+        SettingsGroup(
+            header: "Import from Apple Health",
+            footer: "Brings in data other apps and devices write — a continuous glucose monitor, a smart "
+                + "scale. Imported readings are labelled as coming from Health and are never written "
+                + "back out as if your ring had measured them.\n\nSteps and workouts are not imported: "
+                + "they would double-count against what your ring already records."
+        ) {
+            FormToggleRow(title: "Read from Apple Health", isOn: Binding(
+                get: { store.prefs.importEnabled },
+                set: { setImport($0) }
+            ))
+            if store.prefs.importEnabled {
+                FormToggleRow(title: "Blood glucose (CGM)", isOn: prefBinding(\.importGlucose))
+                FormToggleRow(title: "Body weight", isOn: prefBinding(\.importBodyMass))
+            }
+        }
+        .disabled(!service.isAvailable)
+        .opacity(service.isAvailable ? 1 : 0.5)
+    }
+
+    /// Turning import on requests read-only authorization first. HealthKit never reveals read
+    /// permission, so the toggle latches on once the sheet has been presented — the import simply
+    /// finds nothing if access was refused, which is also what it would do with no CGM installed.
+    private func setImport(_ enabled: Bool) {
+        guard enabled else {
+            store.prefs.importEnabled = false
+            return
+        }
+        Task {
+            try? await importService.requestAuthorization()
+            store.prefs.importEnabled = true
+            await importService.importIncremental(context: modelContext)
+        }
+    }
 
     private func prefBinding(_ keyPath: WritableKeyPath<AppleHealthPrefs, Bool>) -> Binding<Bool> {
         Binding(
