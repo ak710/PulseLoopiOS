@@ -12,6 +12,18 @@ final class ReadinessCardTests: XCTestCase {
 
     private var savedPrefs: ReadinessPrefs?
 
+    /// HRV is 12 points down, sleep 2 — so HRV is unambiguously the top drag.
+    private static let draggingContributors = #"""
+    [{"kindRaw":"hrv","earned":18,"maxPoints":30,"value":44,"baseline":50,"deviation":-12,"detail":"HRV 12% below your baseline"},
+     {"kindRaw":"sleep","earned":28,"maxPoints":30,"value":85,"detail":"Sleep score 85"}]
+    """#
+
+    /// Every contributor at full marks, so there is nothing for the card to blame.
+    private static let perfectContributors = #"""
+    [{"kindRaw":"sleep","earned":30,"maxPoints":30,"value":92,"detail":"Sleep score 92"},
+     {"kindRaw":"restingHeartRate","earned":25,"maxPoints":25,"value":54,"baseline":55,"deviation":-1,"detail":"Resting HR at your baseline"}]
+    """#
+
     override func setUp() async throws {
         try await super.setUp()
         savedPrefs = ReadinessPrefsStore.shared.prefs
@@ -31,7 +43,7 @@ final class ReadinessCardTests: XCTestCase {
         score: Int = 74,
         band: ReadinessBand = .ready,
         availablePoints: Double = 90,
-        contributorsJSON: String = #"[{"kindRaw":"hrv","earned":18,"maxPoints":30,"value":44,"baseline":50,"deviation":-12,"detail":"HRV 12% below your baseline"},{"kindRaw":"sleep","earned":28,"maxPoints":30,"value":85,"detail":"Sleep score 85"}]"#,
+        contributorsJSON: String = draggingContributors,
         into context: ModelContext
     ) -> ReadinessDaily {
         let row = ReadinessDaily(
@@ -95,7 +107,7 @@ final class ReadinessCardTests: XCTestCase {
         let context = try TestSupport.makeContext()
         insertScore(
             score: 100, band: .primed, availablePoints: 60,
-            contributorsJSON: #"[{"kindRaw":"sleep","earned":30,"maxPoints":30,"value":92,"detail":"Sleep score 92"},{"kindRaw":"restingHeartRate","earned":25,"maxPoints":25,"value":54,"baseline":55,"deviation":-1,"detail":"Resting HR at your baseline"}]"#,
+            contributorsJSON: Self.perfectContributors,
             into: context
         )
         let readiness = try XCTUnwrap(
