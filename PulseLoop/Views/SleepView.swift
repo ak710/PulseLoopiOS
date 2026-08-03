@@ -131,6 +131,14 @@ struct SleepView: View {
             } else {
                 sleepCarousel(sessions: sessions, bedtimeBaseline: bedtimeBaseline)
             }
+            // Timing guidance for the day ahead — only meaningful on today, and only once a week of
+            // nights has taught the app the user's actual schedule.
+            if isToday,
+               let baseline = SleepService.circadianBaseline(context: modelContext),
+               let windows = CircadianWindows.build(from: baseline) {
+                CircadianWindowsCard(windows: windows)
+            }
+
             // The LLM day summary describes last night only; on a past day fall back to the
             // scripted coach (deterministically computed from that day's own primary session).
             summaryCard(isToday ? daySummary : nil, fallback: dayFallback)

@@ -631,6 +631,34 @@ enum SleepService {
     /// so a fortnight with a few unworn nights still reaches the 7-night floor.
     static let bedtimeBaselineLookbackDays = 30
 
+    /// The user's usual sleep schedule — bedtime *and* wake time — over the recent window, or nil
+    /// when there isn't a week of nights to learn from.
+    ///
+    /// Days are collapsed first so each contributes one bedtime and one wake, and only sessions long
+    /// enough to be a night are used: a 20-minute nap's start and end are not a schedule.
+    static func circadianBaseline(now: Date = Date(), context: ModelContext) -> CircadianBaseline? {
+        let start = Calendar.current.date(byAdding: .day, value: -bedtimeBaselineLookbackDays, to: now) ?? now
+        let descriptor = FetchDescriptor<SleepSession>(
+            predicate: #Predicate { $0.startAt >= start && $0.startAt <= now },
+            sortBy: [SortDescriptor(\.startAt, order: .reverse)]
+        )
+        let sessions = ((try? context.fetch(descriptor)) ?? []).map {
+            SleepSummary(session: $0, lightMinutes: 0, deepMinutes: 0, awakeMinutes: 0, remMinutes: 0, blocks: [])
+        }
+        let nights = SleepInsights.collapseByDay(sessions)
+            .filter { $0.session.totalMinutes >= minimumNightMinutes }
+            .sorted { $0.session.date > $1.session.date }
+            .prefix(14)
+
+        return CircadianBaseline.compute(
+            bedtimes: nights.map { $0.session.startAt },
+            wakeTimes: nights.map { $0.session.endAt }
+        )
+    }
+
+    /// Shortest session that counts as a night rather than a nap, for schedule learning.
+    static let minimumNightMinutes = 180
+
     /// The user's usual bedtime as of `night`, or nil when there isn't a week of prior nights.
     ///
     /// A windowed predicate fetch rather than `SleepRepository.sessions`, which reads the whole
