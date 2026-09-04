@@ -36,6 +36,11 @@ enum PulseEvent: Sendable {
     case fatigueSample(value: Int, timestamp: Date)
     case bloodSugarSample(mgdl: Double, timestamp: Date)
     /// Firmware version string parsed from the ring's status/firmware payload; persisted on the Device.
+    /// The ring reported whether it is on the finger (CRP group-3/cmd-7 `onWearStateChange`).
+    /// `RingSyncCoordinator` uses `worn == false` to fast-fail an in-flight spot measure: an optical
+    /// sensor with no skin contact cannot read, so idling out the full window only wastes the user's
+    /// time. Not persisted — it is a live condition, not data.
+    case wearState(worn: Bool)
     case firmwareVersion(String)
     /// Friendly history-sync progress for the product UI (e.g. "Syncing sleep…"). Never protocol terms.
     case syncProgress(stage: String)
@@ -89,13 +94,12 @@ final class EventPersistenceSubscriber {
     private let context: ModelContext
     private var task: Task<Void, Never>?
 
-    #if DEBUG
-    /// Rolling cap for the DEBUG-only raw-packet trace, and how often we prune (every Nth insert,
-    /// so we don't pay a fetch on every packet during a sync burst).
+    /// Rolling cap for the raw-packet trace, and how often we prune (every Nth insert, so we don't
+    /// pay a fetch on every packet during a sync burst). DEBUG builds always capture; release
+    /// builds only when the user opts in (see `RawPacketCapture`).
     private let rawPacketCap = 2_000
     private let rawPacketPruneInterval = 200
     private var rawPacketInsertsSincePrune = 0
-    #endif
 
     /// Coalesced-save state. During a sync the ring streams hundreds of events; saving per event
     /// woke every `@Query` hundreds of times (the re-render storm). Instead we insert/mutate without
@@ -161,6 +165,9 @@ final class EventPersistenceSubscriber {
     /// Persist any pending batched writes immediately. Call on app background/suspend so a sync that
     /// is mid-batch isn't lost.
     func flush() {
+        // A suspended mid-sync burst may never see `.syncProgress("done")` — settle any pending
+        // calorie-estimate recomputes before the save (no-op when nothing is dirty).
+        DailyCalorieEstimator.flushDirty(context: context)
         flushNow()
     }
 
@@ -239,9 +246,12 @@ final class EventPersistenceSubscriber {
             context.insert(device)
             recordBatterySample(percent)
         case let .rawPacket(direction, data, decoded):
-            // The raw byte trace is a developer diagnostic only — never stored in release builds, so
-            // production never persists protocol hex/opcodes.
-            #if DEBUG
+            // The raw byte trace is a developer diagnostic. DEBUG builds always keep it; release
+            // builds keep it only while the user has explicitly enabled capture in Privacy & Data —
+            // the toggle exists so a remote tester on TestFlight can hand back protocol bytes from a
+            // ring family we've never had in hand (raw packets encode health data, hence opt-in,
+            // off by default and clearable).
+            guard RawPacketCapture.isEnabled else { return }
             context.insert(
                 RawPacketRow(
                     direction: direction,
@@ -252,14 +262,13 @@ final class EventPersistenceSubscriber {
                     confidence: decoded.confidence
                 )
             )
-            // Keep the debug trace a rolling window so it can't grow without bound. Prune only
-            // every Nth insert to avoid a fetch on every packet during a sync burst.
+            // Keep the trace a rolling window so it can't grow without bound. Prune only every Nth
+            // insert to avoid a fetch on every packet during a sync burst.
             rawPacketInsertsSincePrune += 1
             if rawPacketInsertsSincePrune >= rawPacketPruneInterval {
                 rawPacketInsertsSincePrune = 0
                 DebugRepository.pruneRawPackets(maxRows: rawPacketCap, context: context)
             }
-            #endif
         case let .derivedUpdate(kind, entityType, entityId, payloadJSON):
             context.insert(DerivedUpdateRow(kind: kind, entityType: entityType, entityId: entityId, payloadJSON: payloadJSON))
         case let .activityUpdate(timestamp, steps, distanceMeters, calories):
@@ -281,6 +290,11 @@ final class EventPersistenceSubscriber {
                 entityId: row.id.uuidString,
                 payloadJSON: #"{"steps":\#(row.steps),"calories":\#(Int(row.calories)),"distance_m":\#(Int(row.distanceMeters))}"#
             ))
+            // Devices that report no calorie counter (send 0): keep today's on-device estimate
+            // tracking the live step ratchet. Throttled — cumulative packets can stream every second.
+            if calories <= 0 {
+                DailyCalorieEstimator.recomputeThrottled(day: timestamp, context: context)
+            }
         case let .activityBucket(timestamp, steps, distanceMeters):
             // Per-quarter-hour ring history: upserted by timestamp + the day total recomputed as the
             // sum of distinct buckets, so re-syncs are idempotent (no drift). Calories omitted.
@@ -343,8 +357,13 @@ final class EventPersistenceSubscriber {
                 }
                 // The rows are committed by now; the next sync re-checks against the database.
                 seenHistoryKeys.removeAll(keepingCapacity: true)
+                // Recompute calorie estimates for every day this sync touched, in one pass — the
+                // batched flush below saves the writes and fires the coalesced change signal.
+                DailyCalorieEstimator.flushDirty(context: context)
             }
-        case .heartRateComplete, .spo2Progress, .spo2Complete, .workoutStarted, .workoutPaused, .workoutResumed, .workoutFinished, .coachTrace:
+        // `.wearState` is a live condition the measurement flow reacts to, not data — nothing to store.
+        case .heartRateComplete, .spo2Progress, .spo2Complete, .workoutStarted, .workoutPaused,
+             .workoutResumed, .workoutFinished, .coachTrace, .wearState:
             break
         }
         // NB: no per-event save here — `scheduleFlush()` (called by `persist`) batches the save.
