@@ -53,6 +53,20 @@ extension DateFormatter {
     /// the *layout* depends on the marker existing; for plain formatting, `localizedTemplate("jmm")`
     /// already does the right thing on both.
     static func usesTwelveHourClock(locale: Locale = .current) -> Bool {
-        (dateFormat(fromTemplate: "j", options: 0, locale: locale) ?? "").contains("a")
+        locale.hourCycle == .oneToTwelve || locale.hourCycle == .zeroToEleven
+    }
+}
+
+/// Locale-native interval formatting collapses a shared AM/PM marker and retains both
+/// when the interval crosses noon or midnight. A `hmm` skeleton cannot suppress AM/PM.
+enum WorkoutTimeFormat {
+    static func range(start: Date, end: Date, locale: Locale = .current,
+                      timeZone: TimeZone = .current) -> String {
+        let formatter = DateIntervalFormatter()
+        formatter.locale = locale
+        formatter.timeZone = timeZone
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter.string(from: start, to: end)
     }
 }

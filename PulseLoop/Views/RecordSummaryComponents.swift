@@ -167,11 +167,8 @@ struct WorkoutMetricsSections: View {
 
     /// e.g. "Today · 7:32 – 8:05 AM", or "Today · 07:32 – 08:05" where the device is on 24-hour time.
     ///
-    /// The AM/PM marker is carried once, on the end of the range. A 24-hour locale has no marker to
-    /// carry, so both ends format the same way there.
+    /// Locale-native intervals carry a shared day-period once, or both when crossing noon.
     private var dateRange: String {
-        let time = DateFormatter.localizedTemplate(DateFormatter.usesTwelveHourClock() ? "hmm" : "jmm")
-        let timeAmPm = DateFormatter.localizedTemplate("jmm")
         let day: String
         if Calendar.current.isDateInToday(session.startedAt) {
             day = "Today"
@@ -182,7 +179,7 @@ struct WorkoutMetricsSections: View {
             day = d.string(from: session.startedAt)
         }
         guard let ended = session.endedAt else { return day }
-        return "\(day) · \(time.string(from: session.startedAt)) – \(timeAmPm.string(from: ended))"
+        return "\(day) · \(WorkoutTimeFormat.range(start: session.startedAt, end: ended))"
     }
 
     @ViewBuilder

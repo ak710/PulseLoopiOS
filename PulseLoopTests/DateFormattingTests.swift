@@ -103,4 +103,30 @@ final class DateFormattingTests: XCTestCase {
             XCTAssertFalse(formatted.uppercased().contains("PM"), formatted)
         }
     }
+    func testWorkoutRangeUsesOneSharedDayPeriod() {
+        let text = WorkoutTimeFormat.range(start: date(2026, 8, 1, hour: 7, minute: 32),
+                                           end: date(2026, 8, 1, hour: 8, minute: 5),
+                                           locale: Locale(identifier: "en_US"), timeZone: utc)
+        XCTAssertTrue(text.contains("7:32"), text)
+        XCTAssertTrue(text.contains("8:05"), text)
+        XCTAssertEqual(text.components(separatedBy: "AM").count - 1, 1, text)
+    }
+
+    func testWorkoutRangeKeepsDayPeriodsAcrossNoon() {
+        let text = WorkoutTimeFormat.range(start: date(2026, 8, 1, hour: 11, minute: 30),
+                                           end: date(2026, 8, 1, hour: 13, minute: 5),
+                                           locale: Locale(identifier: "en_US"), timeZone: utc)
+        XCTAssertTrue(text.contains("AM"), text)
+        XCTAssertTrue(text.contains("PM"), text)
+    }
+
+    func testWorkoutRangeHonorsTwentyFourHourLocale() {
+        let text = WorkoutTimeFormat.range(start: date(2026, 8, 1, hour: 19, minute: 32),
+                                           end: date(2026, 8, 1, hour: 20, minute: 5),
+                                           locale: Locale(identifier: "de_DE"), timeZone: utc)
+        XCTAssertTrue(text.contains("19:32"), text)
+        XCTAssertTrue(text.contains("20:05"), text)
+        XCTAssertFalse(text.contains("PM"), text)
+    }
+
 }
