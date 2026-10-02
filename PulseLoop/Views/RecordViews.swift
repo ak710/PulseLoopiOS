@@ -165,6 +165,7 @@ struct ActivityDetailView: View {
     let sessionId: UUID
     @State private var confirmingDelete = false
     @State private var editing = false
+    @State private var presentingShare = false
 
     private var units: UnitsPreference { profiles.first?.units ?? .metric }
 
@@ -189,6 +190,8 @@ struct ActivityDetailView: View {
                         .padding(.horizontal, 4)
                     }
 
+                    StravaUploadRow(session: session)
+
                     Button(role: .destructive) {
                         confirmingDelete = true
                     } label: {
@@ -209,6 +212,12 @@ struct ActivityDetailView: View {
             .background(PulseColors.background)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
+                    Button { presentingShare = true } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .tint(PulseColors.accent)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button { editing = true } label: {
                         Image(systemName: "pencil")
                     }
@@ -223,6 +232,9 @@ struct ActivityDetailView: View {
             }
             .sheet(isPresented: $editing) {
                 EditWorkoutSheet(session: session)
+            }
+            .sheet(isPresented: $presentingShare) {
+                ShareCardSheet(session: session)
             }
             .sheet(isPresented: $confirmingDelete) {
                 WorkoutEndSheet(

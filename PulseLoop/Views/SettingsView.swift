@@ -35,6 +35,10 @@ struct SettingsView: View {
             return OpenRouterModel(rawValue: settings.model)?.label ?? settings.openRouterModel
         case .userMiniMaxKey:
             return MiniMaxModel(rawValue: settings.model)?.label ?? settings.minimaxModel
+        case .localOpenAICompat:
+            // The model name is whatever the user's own server calls it, so there's no preset to
+            // map. Blank is legitimate (llama.cpp ignores the field), hence the fallback.
+            return settings.resolvedLocalModel.isEmpty ? "Self-hosted" : settings.resolvedLocalModel
         case .backendProxy:
             return "Backend proxy"
         }
@@ -116,6 +120,14 @@ struct SettingsView: View {
             },
             SettingsRowItem(icon: "target", tint: PulseColors.readiness, title: "Goals") {
                 path.append(AppRoute.settingsGoals)
+            },
+            // The only discovery point for the (off-by-default) nutrition feature — every other
+            // surface hides entirely while the master toggle is off.
+            SettingsRowItem(
+                icon: "fork.knife", tint: PulseColors.calories, title: "Nutrition",
+                trailingValue: NutritionPrefsStore.shared.prefs.masterEnabled ? "On" : "Off"
+            ) {
+                path.append(AppRoute.settingsNutrition)
             }
         ]
     }
@@ -136,6 +148,9 @@ struct SettingsView: View {
         }
         rows.append(SettingsRowItem(icon: "heart.fill", tint: PulseColors.heartRate, title: "Apple Health") {
             path.append(AppRoute.settingsHealth)
+        })
+        rows.append(SettingsRowItem(icon: "figure.run", tint: Color(hex: "#FC4C02"), title: "Strava") {
+            path.append(AppRoute.settingsStrava)
         })
         rows.append(SettingsRowItem(icon: "lock.shield", tint: PulseColors.success, title: "Privacy & Data") {
             path.append(AppRoute.settingsPrivacyData)

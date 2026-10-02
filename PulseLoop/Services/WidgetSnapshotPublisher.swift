@@ -146,7 +146,48 @@ final class WidgetSnapshotPublisher {
             dayStart: Calendar.current.startOfDay(for: Date()),
             activity: activityPayload(summary, units: units),
             sleep: sleepPayload(summary.sleep),
-            metrics: metrics
+            metrics: metrics,
+            nutrition: nutritionPayload(summary)
+        )
+    }
+
+    /// Calorie-intake tile payload. Nil unless the nutrition feature is enabled and shown on
+    /// Today/widgets — the widget then renders its "open the app" placeholder. Over-goal ring
+    /// tint and all texts are baked here so the extension carries no nutrition logic.
+    private func nutritionPayload(_ summary: TodaySummary) -> WidgetNutritionPayload? {
+        guard NutritionPrefsStore.shared.prefs.showOnToday, let totals = summary.nutrition else { return nil }
+        let goal = summary.goals.intakeCalories
+        let remaining = goal.map { Double($0) - totals.calories }
+
+        let ringHex: String
+        if let goal, totals.calories > Double(goal) {
+            ringHex = totals.calories <= Double(goal) * 1.15 ? "#FFB86B" : "#FF4D6D"   // warning / danger
+        } else {
+            ringHex = "#FF8A4C"                                                        // PulseColors.calories
+        }
+
+        func macroRow(_ letter: String, _ hex: String, _ value: Double, _ macroGoal: Int?) -> WidgetNutritionPayload.MacroRow {
+            let grams = Int(value.rounded())
+            return .init(
+                letter: letter,
+                text: macroGoal.map { "\(grams)/\($0)g" } ?? "\(grams)g",
+                value: value,
+                goal: Double(macroGoal ?? 0),
+                colorHex: hex
+            )
+        }
+
+        return WidgetNutritionPayload(
+            kcal: totals.calories,
+            kcalGoal: Double(goal ?? 0),
+            centerText: Int((remaining.map { max(0, $0) } ?? totals.calories).rounded()).formatted(),
+            centerLabel: remaining.map { $0 >= 0 ? "LEFT" : "OVER" } ?? "KCAL",
+            ringColorHex: ringHex,
+            macroRows: [
+                macroRow("P", "#4DA3FF", totals.proteinG, summary.goals.intakeProteinG),
+                macroRow("C", "#35E0A1", totals.carbsG, summary.goals.intakeCarbsG),
+                macroRow("F", "#FFD166", totals.fatG, summary.goals.intakeFatG),
+            ]
         )
     }
 
@@ -154,6 +195,9 @@ final class WidgetSnapshotPublisher {
     private func activityPayload(_ summary: TodaySummary, units: UnitsPreference) -> WidgetActivityPayload {
         let caloriesAvailable = MetricsService.isVisible(.calories, context: modelContext, scope: .today)
         let calories = caloriesAvailable ? summary.calories : nil
+        // Ring progress measures the active-energy portion vs the active-energy goal (matches
+        // ActivityTileView); the text shows the display value (device or estimated total).
+        let activeCalories = caloriesAvailable ? summary.activeCalories : nil
         let distanceText = summary.distanceMeters.map { UnitsFormatter.distance(meters: $0, units: units).value }
         return WidgetActivityPayload(
             steps: summary.steps.map(Double.init),
@@ -161,7 +205,7 @@ final class WidgetSnapshotPublisher {
             distanceDisplay: distanceText.flatMap(Double.init),
             distanceGoalDisplay: Double(UnitsFormatter.distance(meters: summary.goals.distanceMetersDaily, units: units).value) ?? 0,
             distanceUnitLabel: units == .imperial ? "MI" : "KM",
-            calories: calories,
+            calories: activeCalories,
             caloriesGoal: Double(summary.goals.caloriesDaily),
             stepsText: summary.steps.map { $0.formatted() },
             distanceText: distanceText,

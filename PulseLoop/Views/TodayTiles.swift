@@ -60,6 +60,9 @@ struct ActivityTileView: View {
     var onTap: () -> Void
 
     private var effectiveCalories: Double? { caloriesAvailable ? summary.calories : nil }
+    /// The goal ring measures active energy (`UserGoal.calories` is an active-energy goal), even
+    /// when the displayed number is an estimated total that includes the BMR baseline.
+    private var effectiveActiveCalories: Double? { caloriesAvailable ? summary.activeCalories : nil }
     private var distanceGoalDisplay: Double {
         Double(UnitsFormatter.distance(meters: summary.goals.distanceMetersDaily, units: units).value) ?? 0
     }
@@ -86,7 +89,7 @@ struct ActivityTileView: View {
                 ActivityRingsView(rings: [
                     ActivityRing(value: summary.steps.map(Double.init), goal: Double(summary.goals.stepsDaily), color: PulseColors.steps),
                     ActivityRing(value: distanceDisplay, goal: distanceGoalDisplay, color: PulseColors.distance),
-                    ActivityRing(value: effectiveCalories, goal: Double(summary.goals.caloriesDaily), color: PulseColors.calories)
+                    ActivityRing(value: effectiveActiveCalories, goal: Double(summary.goals.caloriesDaily), color: PulseColors.calories)
                 ], size: 88, stroke: 9, spacing: 4)
                 // Nudge into the card padding so the bigger loop doesn't crowd the numbers.
                 .padding(.leading, -6)
@@ -105,6 +108,102 @@ struct ActivityTileView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             Spacer(minLength: 0)
+        }
+    }
+}
+
+// MARK: - Nutrition tile (kcal headline + macro "fuel bar")
+
+/// Calorie-intake tile in the Sleep tile's visual language: a big kcal headline, a
+/// proportional macro "fuel bar" (protein/carbs/fat split, reusing the shared
+/// `SleepStageBar`), and a fixed-width EATEN/GOAL stat line. Nothing here can
+/// overflow — the bar drops labels on slivers and the stats are short fixed texts.
+/// Only rendered when the nutrition feature is enabled (`summary.nutrition` set).
+struct NutritionTileView: View {
+    let totals: NutritionDayTotals
+    let goals: GoalsSummary
+    var onTap: () -> Void
+
+    private var goal: Int? { goals.intakeCalories }
+    private var remaining: Double? { goal.map { Double($0) - totals.calories } }
+    private var headlineColor: Color {
+        goal.map { NutritionFormat.progressColor(consumed: totals.calories, goal: Double($0), base: PulseColors.textPrimary) }
+            ?? PulseColors.textPrimary
+    }
+
+    private var headlineValue: String {
+        NutritionFormat.kcal(remaining.map { Swift.max(0, $0) } ?? totals.calories)
+    }
+
+    private var headlineLabel: String {
+        guard let remaining else { return "KCAL" }
+        return remaining >= 0 ? "LEFT" : "OVER"
+    }
+
+    private var fuelSegments: [SleepStageSegment] {
+        [
+            SleepStageSegment(minutes: totals.proteinG, color: PulseColors.macroProtein, label: "P"),
+            SleepStageSegment(minutes: totals.carbsG, color: PulseColors.macroCarbs, label: "C"),
+            SleepStageSegment(minutes: totals.fatG, color: PulseColors.macroFat, label: "F"),
+        ].filter { $0.minutes > 0 }
+    }
+
+    var body: some View {
+        TodayTile(label: "Nutrition", color: PulseColors.calories, onTap: onTap) {
+            if totals.entryCount > 0 {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Text(headlineValue)
+                            .font(PulseFont.greeting)
+                            .monospacedDigit()
+                            .foregroundStyle(headlineColor)
+                            .minimumScaleFactor(0.7)
+                            .lineLimit(1)
+                        Text(headlineLabel)
+                            .font(PulseFont.micro.weight(.semibold)).tracking(1.0)
+                            .foregroundStyle(PulseColors.textMuted)
+                    }
+                    if fuelSegments.isEmpty {
+                        Capsule().fill(PulseColors.elevated).frame(height: 12)
+                    } else {
+                        SleepStageBar(segments: fuelSegments)
+                            .frame(height: 28)
+                    }
+                    // Single compact stat line — small enough that two number/label pairs
+                    // always fit the half-width tile without wrapping.
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text(NutritionFormat.kcal(totals.calories))
+                            .font(PulseFont.footnote.weight(.semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(PulseColors.textPrimary)
+                        Text("EATEN")
+                            .font(PulseFont.nano).tracking(0.8)
+                            .foregroundStyle(PulseColors.calories)
+                        if let goal {
+                            Spacer(minLength: 4)
+                            Text(goal.formatted())
+                                .font(PulseFont.footnote.weight(.semibold))
+                                .monospacedDigit()
+                                .foregroundStyle(PulseColors.textSecondary)
+                            Text("GOAL")
+                                .font(PulseFont.nano).tracking(0.8)
+                                .foregroundStyle(PulseColors.textMuted)
+                        }
+                    }
+                    .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Spacer(minLength: 0)
+                VStack(spacing: 6) {
+                    Image(systemName: "fork.knife")
+                        .font(PulseFont.title2.weight(.regular)).foregroundStyle(PulseColors.calories.opacity(0.7))
+                    Text("No meals logged")
+                        .font(PulseFont.footnote).foregroundStyle(PulseColors.textPrimary)
+                }
+                .frame(maxWidth: .infinity)
+                Spacer(minLength: 0)
+            }
         }
     }
 }

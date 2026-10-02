@@ -1,10 +1,12 @@
 import SwiftUI
 import SwiftData
 import UIKit
+import UniformTypeIdentifiers
 
 /// Privacy & Data detail screen. Grouped iOS-style sections, each a single inset card of full-width
 /// rows with a one-line description footer:
-///   • Diagnostics — export a diagnostics bundle (leaves room for a future Import).
+///   • Backup — export the full dataset to a JSON file, or import one (replace-all).
+///   • Diagnostics — export a diagnostics bundle.
 ///   • App data — destructive reset/restore: unpair the ring, factory-reset app data, or both.
 ///   • Demo data — clear or reseed the local demo dataset.
 /// Everything here is local and explicit, reflecting the app's transparency/privacy ethos.
@@ -12,9 +14,21 @@ struct PrivacyDataSettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(RingBLEClient.self) private var ble
     @State private var diagnosticsURL: URL?
+    /// Mirrors `RawPacketCapture.userOptedIn` so the toggle re-renders; the defaults key is the truth.
+    @State private var captureRawPackets = RawPacketCapture.userOptedIn
 
     /// Which destructive App-data action is awaiting confirmation.
     @State private var pendingReset: ResetAction?
+
+    // Backup (full export/import) state.
+    @State private var exportURL: URL?
+    @State private var showImporter = false
+    /// File picked while the app still has data — held until the user confirms the replace.
+    @State private var pendingImportURL: URL?
+    /// Non-nil while an export/import runs; the label shown under the blocking spinner.
+    @State private var workingLabel: String?
+    @State private var backupError: String?
+    @State private var showImportSuccess = false
 
     private enum ResetAction: Identifiable {
         case unpairRing
@@ -56,11 +70,51 @@ struct PrivacyDataSettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 SettingsGroup(
+                    header: "Backup",
+                    footer: "Export everything — metrics, sleep, workouts, coach history, settings — to a JSON file "
+                        + "you can save, AirDrop, or analyze. Importing a backup replaces all data in the app. "
+                        + "API keys are never included."
+                ) {
+                    actionRow("Export all data", systemImage: "square.and.arrow.up.on.square") {
+                        exportAllData()
+                    }
+                    actionRow("Import data…", systemImage: "square.and.arrow.down") {
+                        showImporter = true
+                    }
+                }
+
+                SettingsGroup(
                     header: "Diagnostics",
-                    footer: "A local snapshot for troubleshooting — nothing leaves the device unless you share it."
+                    footer: "A local snapshot for troubleshooting — nothing leaves the device unless you share it. "
+                        + "Bluetooth capture stores the raw packets exchanged with your ring (which encode your "
+                        + "health readings) and includes them in exports; leave it off unless support asked for it."
                 ) {
                     actionRow("Export diagnostics", systemImage: "square.and.arrow.up") {
                         diagnosticsURL = DiagnosticsExporter.exportFile(context: modelContext)
+                    }
+                    HStack(spacing: 12) {
+                        Image(systemName: "dot.radiowaves.left.and.right")
+                            .font(PulseFont.body)
+                            .foregroundStyle(PulseColors.textPrimary)
+                            .frame(width: 24)
+                        Toggle(isOn: Binding(
+                            get: { captureRawPackets },
+                            set: { enabled in
+                                captureRawPackets = enabled
+                                RawPacketCapture.userOptedIn = enabled
+                            }
+                        )) {
+                            Text("Capture Bluetooth diagnostics")
+                                .font(PulseFont.body)
+                                .foregroundStyle(PulseColors.textPrimary)
+                        }
+                        .tint(PulseColors.accent)
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 50)
+                    actionRow("Clear captured packets", systemImage: "trash") {
+                        DebugRepository.pruneRawPackets(maxRows: 0, context: modelContext)
+                        try? modelContext.save()
                     }
                 }
 
@@ -101,8 +155,62 @@ struct PrivacyDataSettingsView: View {
         }
         .background(PulseColors.background)
         .pageChrome("Privacy & Data")
+        // Blocking overlay while an export/import runs — the work yields regularly, so the
+        // spinner stays animated; the screen is disabled underneath.
+        .overlay {
+            if let workingLabel {
+                ZStack {
+                    Color.black.opacity(0.35).ignoresSafeArea()
+                    ProgressView(workingLabel)
+                        .tint(PulseColors.accent)
+                        .padding(24)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                }
+            }
+        }
+        .disabled(workingLabel != nil)
         .sheet(item: $diagnosticsURL) { url in
             DiagnosticsShareSheet(items: [url])
+        }
+        .sheet(item: $exportURL) { url in
+            DiagnosticsShareSheet(items: [url])
+        }
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json]) { result in
+            guard case let .success(url) = result else { return }
+            if DataArchiveService.hasAnyData(context: modelContext) {
+                pendingImportURL = url   // destructive — confirm below before touching anything
+            } else {
+                importData(from: url)
+            }
+        }
+        .confirmationDialog(
+            "Replace all data?",
+            isPresented: Binding(
+                get: { pendingImportURL != nil },
+                set: { if !$0 { pendingImportURL = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingImportURL
+        ) { url in
+            Button("Delete old data & import", role: .destructive) {
+                importData(from: url)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("This permanently deletes everything currently in the app and replaces it with the contents of this file. This can't be undone.")
+        }
+        .alert("Couldn't complete", isPresented: Binding(
+            get: { backupError != nil },
+            set: { if !$0 { backupError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(backupError ?? "")
+        }
+        .alert("Import complete", isPresented: $showImportSuccess) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Your data has been restored from the backup.")
         }
         .confirmationDialog(
             pendingReset?.title ?? "",
@@ -152,6 +260,39 @@ struct PrivacyDataSettingsView: View {
         .buttonStyle(.plain)
     }
 
+    // MARK: - Backup actions
+
+    private func exportAllData() {
+        workingLabel = "Exporting…"
+        Task {
+            defer { workingLabel = nil }
+            do {
+                exportURL = try await DataArchiveService.exportFile(context: modelContext)
+            } catch {
+                backupError = error.localizedDescription
+            }
+        }
+    }
+
+    private func importData(from url: URL) {
+        pendingImportURL = nil
+        workingLabel = "Importing…"
+        Task {
+            defer { workingLabel = nil }
+            do {
+                // fileImporter URLs are security-scoped; read the bytes immediately, then work
+                // from memory.
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                let data = try Data(contentsOf: url)
+                try await DataArchiveService.importArchive(data, context: modelContext)
+                showImportSuccess = true
+            } catch {
+                backupError = error.localizedDescription
+            }
+        }
+    }
+
     // MARK: - Reset actions
 
     private func perform(_ action: ResetAction) {
@@ -174,11 +315,13 @@ struct PrivacyDataSettingsView: View {
         // 1. All SwiftData model types (this removes UserProfile → RootViews returns to onboarding).
         SeedData.clearAll(modelContext)
 
-        // 2. Coach API keys from the Keychain (survive UserDefaults wipe, so delete explicitly).
+        // 2. Coach API keys and Strava OAuth tokens from the Keychain (survive UserDefaults wipe,
+        //    so delete explicitly).
         try? OpenAIKeychainStore().deleteKey()
         try? GeminiKeychainStore().deleteKey()
         try? OpenRouterKeychainStore().deleteKey()
         try? MiniMaxKeychainStore().deleteKey()
+        try? StravaKeychainTokenStore().delete()
 
         // 3. Wipe UserDefaults (metric prefs, coach settings, calibration, remembered ring, flags, …).
         if let bundleID = Bundle.main.bundleIdentifier {
@@ -191,6 +334,7 @@ struct PrivacyDataSettingsView: View {
         MetricPrefsStore.shared.settings = .default
         CoachSettingsStore.shared.settings = .default
         CalibrationStore.shared.settings = .default
+        StravaPrefsStore.shared.resetAll()
 
         // 5. RootViews reacts to the emptied `profiles` @Query and swaps MainTabView → OnboardingFlowView,
         //    tearing down this pushed page automatically — no manual navigation needed. In DEBUG the

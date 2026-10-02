@@ -51,6 +51,18 @@ struct ActivityView: View {
                         path.append(AppRoute.activityTrends)
                     }
 
+                    // Calorie-intake sibling of the daily summary. `summary.nutrition` is only
+                    // populated while the nutrition feature is enabled — nothing renders otherwise.
+                    if let nutrition = summary.nutrition {
+                        NutritionSummaryCard(
+                            totals: nutrition,
+                            goals: summary.goals,
+                            burned: summary.calories
+                        ) {
+                            path.append(AppRoute.nutrition)
+                        }
+                    }
+
                     HStack(spacing: 12) {
                     Button { path.append(AppRoute.recordSelect) } label: {
                         Text("+ Record Activity")
@@ -205,6 +217,9 @@ struct DailyActivitySummaryCard: View {
     /// Calories only when the device actually tracks them; otherwise nil so text shows "—" and the
     /// ring stays a muted track (matches the Today page's `isVisible(.calories)` gating).
     private var effectiveCalories: Double? { caloriesAvailable ? summary.calories : nil }
+    /// The goal ring measures active energy (`UserGoal.calories` is an active-energy goal), even
+    /// when the displayed number is an estimated total that includes the BMR baseline.
+    private var effectiveActiveCalories: Double? { caloriesAvailable ? summary.activeCalories : nil }
 
     private var distanceUnit: String { UnitsFormatter.distance(meters: 0, units: units).unit }
     private var distanceValue: String? { summary.distanceMeters.map { UnitsFormatter.distance(meters: $0, units: units).value } }
@@ -232,7 +247,7 @@ struct DailyActivitySummaryCard: View {
                     ActivityRingsView(rings: [
                         ActivityRing(value: summary.steps.map(Double.init), goal: Double(summary.goals.stepsDaily), color: PulseColors.steps),
                         ActivityRing(value: distanceDisplay, goal: distanceGoalDisplay, color: PulseColors.distance),
-                        ActivityRing(value: effectiveCalories, goal: Double(summary.goals.caloriesDaily), color: PulseColors.calories)
+                        ActivityRing(value: effectiveActiveCalories, goal: Double(summary.goals.caloriesDaily), color: PulseColors.calories)
                     ], size: 112, stroke: 11, spacing: 5)
                     .frame(width: 112, height: 112)
                 }

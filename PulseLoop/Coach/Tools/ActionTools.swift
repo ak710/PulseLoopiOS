@@ -25,9 +25,12 @@ enum ActionTools {
         .make(
             name: "set_goal",
             label: "Saving your goal",
-            description: "Create or update a daily/weekly fitness goal.",
+            description: "Create or update a daily/weekly fitness goal. Nutrition intake goals (calorie_intake and the per-macro gram targets) apply to the calorie-tracking feature.",
             parameters: JSONSchema.object([
-                "goal_type": JSONSchema.enumString(["steps", "sleep_hours", "active_minutes", "exercise_days"]),
+                "goal_type": JSONSchema.enumString([
+                    "steps", "sleep_hours", "active_minutes", "exercise_days",
+                    "calorie_intake", "protein_g", "carbs_g", "fat_g",
+                ]),
                 "target": JSONSchema.number,
                 "reason": JSONSchema.string,
             ], required: ["goal_type", "target", "reason"]),
@@ -41,10 +44,16 @@ enum ActionTools {
             case "sleep_hours": goal.sleepMinutes = Int(args.target * 60)
             case "active_minutes": goal.activeMinutes = Int(args.target)
             case "exercise_days": goal.workoutsPerWeek = Int(args.target)
+            // Intake goals (NOT `goal.calories`, which is the active-energy burn goal).
+            case "calorie_intake": goal.intakeCalories = Int(args.target)
+            case "protein_g": goal.intakeProteinG = Int(args.target)
+            case "carbs_g": goal.intakeCarbsG = Int(args.target)
+            case "fat_g": goal.intakeFatG = Int(args.target)
             default: return .error("invalid goal_type '\(args.goalType)'")
             }
             goal.updatedAt = Date()
             try? ctx.modelContext.save()
+            PulseDataChange.shared.notify()
             return .object(["ok": true, "goal_type": args.goalType, "target": args.target])
         }
     }
@@ -123,6 +132,19 @@ enum ActionTools {
             case activityType = "activity_type", date, startTime = "start_time"
             case durationMin = "duration_min", distanceKm = "distance_km", notes, confidence
         }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            activityType = try c.decode(String.self, forKey: .activityType)
+            date = try c.decode(String.self, forKey: .date)
+            startTime = try c.decodeIfPresent(String.self, forKey: .startTime)
+            durationMin = try c.decodeIfPresent(Double.self, forKey: .durationMin)
+            distanceKm = try c.decodeIfPresent(Double.self, forKey: .distanceKm)
+            // Local models commonly omit descriptive metadata even when it is marked required.
+            // Neither field is needed to perform the write, so use honest conservative defaults.
+            notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+            confidence = try c.decodeIfPresent(String.self, forKey: .confidence) ?? "medium"
+        }
     }
 
     private static var createActivitySession: AnyCoachTool {
@@ -146,7 +168,7 @@ enum ActionTools {
                                 "suggested_question": "Roughly how long was the \(args.activityType) session?"])
             }
             let now = Date()
-            var start: Date = args.startTime.flatMap(CoachDataAccess.parseLocalDate)
+            var start: Date = resolveStart(date: args.date, time: args.startTime)
                 ?? CoachDataAccess.parseLocalDate(args.date).map { $0.addingTimeInterval(12 * 3600) }
                 ?? now
             // The same-day noon default can land in the future (logging "today"
@@ -292,6 +314,28 @@ enum ActionTools {
     }
 
     // MARK: - shared
+
+    /// Accept both the documented 24-hour clock and the common `7:00 PM` local-model spelling.
+    /// A full ISO timestamp remains valid for providers that already supply one.
+    private static func resolveStart(date: String, time: String?) -> Date? {
+        guard let time, !time.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        if let iso = ISO8601DateFormatter().date(from: time) { return iso }
+        guard let day = CoachDataAccess.parseLocalDate(date) else { return nil }
+
+        let value = time.trimmingCharacters(in: .whitespacesAndNewlines)
+        for format in ["HH:mm", "H:mm", "h:mm a", "h:mma"] {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = .current
+            formatter.dateFormat = format
+            guard let parsed = formatter.date(from: value) else { continue }
+            let components = Calendar.current.dateComponents([.hour, .minute], from: parsed)
+            return Calendar.current.date(
+                bySettingHour: components.hour ?? 12, minute: components.minute ?? 0,
+                second: 0, of: day)
+        }
+        return nil
+    }
 
     private static func applyUpdatesNow(_ updates: ActivityUpdates, to session: ActivitySession, context: ModelContext) {
         if let notes = updates.notes { session.notes = notes }

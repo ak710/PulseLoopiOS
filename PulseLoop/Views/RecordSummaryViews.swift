@@ -64,6 +64,7 @@ struct RecordSummaryView: View {
     @State private var note = ""
     /// Debounce for the backfill-driven summary refresh (samples arrive in bursts after finish).
     @State private var refreshTask: Task<Void, Never>?
+    @State private var presentingShare = false
 
     private let efforts: [(String, String)] = [("easy", "Easy"), ("moderate", "Moderate"), ("hard", "Hard"), ("very_hard", "Very hard")]
 
@@ -92,6 +93,9 @@ struct RecordSummaryView: View {
 
                     effortCard
 
+                    // Same position semantics as ActivityDetailView: after the notes/effort content.
+                    StravaUploadRow(session: session)
+
                     Spacer(minLength: 8)
                 }
                 .padding(16)
@@ -100,8 +104,15 @@ struct RecordSummaryView: View {
             .background(PulseColors.background)
             .navigationBarBackButtonHidden(true)
             .safeAreaInset(edge: .bottom) {
-                PrimaryButton(title: "Done", systemImage: "checkmark") { done(session) }
-                    .padding(16)
+                HStack(spacing: 12) {
+                    SecondaryButton(title: "Share", systemImage: "square.and.arrow.up") { presentingShare = true }
+                        .frame(width: 130)
+                    PrimaryButton(title: "Done", systemImage: "checkmark") { done(session) }
+                }
+                .padding(16)
+            }
+            .sheet(isPresented: $presentingShare) {
+                ShareCardSheet(session: session)
             }
             .onAppear { effort = session.perceivedEffort; note = session.notes ?? "" }
             .onChange(of: samples.count) { _, _ in

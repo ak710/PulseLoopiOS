@@ -35,9 +35,16 @@ struct TodayView: View {
 
     /// Canonical Today tile order (used until the user reorders). Tile id = `MetricKey`.
     private static let defaultOrder: [MetricKey] = [
-        .steps, .sleep, .heartRate, .spo2, .hrv, .temperature,
+        .steps, .nutrition, .sleep, .heartRate, .spo2, .hrv, .temperature,
         .stress, .fatigue, .bloodSugar, .bloodPressureSystolic
     ]
+
+    /// Nutrition has no wearable capability — its tile is gated on the feature's master toggle
+    /// (+ its own "show on Today" pref) instead.
+    private var nutritionTileAvailable: Bool {
+        let prefs = NutritionPrefsStore.shared.prefs
+        return prefs.masterEnabled && prefs.showOnToday
+    }
 
     private var summaryService: CoachSummaryService { CoachSummaryService(modelContext: modelContext) }
     private var coachEnabled: Bool { coachStore.settings.coachMasterEnabled }
@@ -181,6 +188,7 @@ struct TodayView: View {
     private func hiddenKeys(_ store: TodayStore) -> [MetricKey] {
         Self.defaultOrder.filter {
             $0.isSupported(by: store.capabilities) && prefs.isHidden($0, scope: .today)
+                && ($0 != .nutrition || nutritionTileAvailable)
         }
     }
 
@@ -217,6 +225,7 @@ struct TodayView: View {
         // live from `prefs`, which the view observes, so the grid updates on the tap.
         let visible = Self.defaultOrder.filter {
             $0.isSupported(by: store.capabilities) && !prefs.isHidden($0, scope: .today)
+                && ($0 != .nutrition || nutritionTileAvailable)
         }
         let raws = prefs.resolvedOrder(
             visible: Set(visible.map(\.rawValue)),
@@ -232,9 +241,19 @@ struct TodayView: View {
         case .steps:
             ActivityTileView(
                 summary: store.summary, units: units,
-                caloriesAvailable: MetricsService.isVisible(.calories, context: modelContext, scope: .today),
+                // From the store's per-rebuild snapshot — never a SwiftData fetch on the body path
+                // (this body re-runs on every store/prefs change). `.calories` can't be hidden
+                // (Settings folds it into the Activity tile), so this reduces to the device
+                // capability gate, and capability changes already flow through the store rebuild.
+                caloriesAvailable: store.visibleMetrics.contains(.calories),
                 onTap: { selectedTab = .activity }
             )
+        case .nutrition:
+            if let totals = store.summary.nutrition {
+                NutritionTileView(totals: totals, goals: store.summary.goals) {
+                    path.append(AppRoute.nutrition)
+                }
+            }
         case .sleep:
             SleepTileView(sleep: store.summary.sleep) { selectedTab = .sleep }
         case .heartRate: chartTile(store, .heartRate, physiology)
