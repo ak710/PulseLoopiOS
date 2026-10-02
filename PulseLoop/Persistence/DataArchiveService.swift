@@ -288,7 +288,7 @@ enum DataArchiveService {
         applySettings(archive.settings, defaults: defaults)
         restoreAttachments(archive.attachments, to: attachmentsDirectory ?? Self.defaultAttachmentsDirectory())
         if refreshStores {
-            refreshSharedStores()
+            refreshSharedStores(defaults: defaults)
         }
 
         // 6. Self-heal readiness history. A v1 archive predates the table entirely, and a v2 one may
@@ -458,8 +458,7 @@ enum DataArchiveService {
     /// change shows without a relaunch — same trick as the factory reset. Also re-stamps the Apple
     /// Health watermarks to "now": importing history must not trigger a surprise full re-export
     /// into this device's Health store.
-    private static func refreshSharedStores() {
-        let defaults = UserDefaults.standard
+    private static func refreshSharedStores(defaults: UserDefaults) {
         func decode<T: Decodable>(_ type: T.Type, _ key: String) -> T? {
             guard let data = defaults.data(forKey: key) else { return nil }
             return try? JSONDecoder().decode(T.self, from: data)
@@ -469,6 +468,7 @@ enum DataArchiveService {
         CalibrationStore.shared.settings = decode(Calibration.self, "pulseloop.calibration.v1") ?? .default
         CoachSettingsStore.shared.settings = decode(CoachSettings.self, "pulseloop.coach.settings.v1") ?? .default
         AppleHealthPrefsStore.shared.prefs = decode(AppleHealthPrefs.self, "pulseloop.applehealth.prefs.v1") ?? .default
+        ReadinessPrefsStore.shared.prefs = decode(ReadinessPrefs.self, ReadinessPrefsStore.prefsKey) ?? .default
         if AppleHealthPrefsStore.shared.prefs.masterEnabled {
             AppleHealthPrefsStore.shared.resetWatermarks(to: Date())
         }

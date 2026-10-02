@@ -169,7 +169,7 @@ enum ReadinessScore {
     /// Bumping this invalidates stored `ReadinessDaily` rows so they recompute, rather than letting
     /// old scores be reinterpreted under new weights. Changing weights or knots REQUIRES a bump,
     /// and an update to `docs/project/readiness.md`.
-    static let algorithmVersion = 1
+    static let algorithmVersion = 2
 
     /// Below this many available points a score would be more suggestion than measurement.
     static let minAvailablePoints: Double = 50
@@ -256,7 +256,7 @@ enum ReadinessScore {
         }
 
         // Sleep — absolute, since `SleepScore` already encodes population-normal ranges.
-        if let sleepScore = inputs.sleepScore, sleepScore > 0 {
+        if let sleepScore = inputs.sleepScore, sleepScore >= 0 {
             sawAnySignal = true
             let value = Double(sleepScore)
             contributors.append(

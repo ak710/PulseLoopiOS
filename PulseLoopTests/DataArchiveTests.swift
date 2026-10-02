@@ -258,6 +258,46 @@ final class DataArchiveTests: XCTestCase {
         XCTAssertNil(importDefaults.data(forKey: "pulseloop.calibration.v1"), "keys absent from the archive must reset")
     }
 
+    func testImportReloadsReadinessPreferenceBeforeBackfill() async throws {
+        let originalPrefs = ReadinessPrefsStore.shared.prefs
+        let originalMetric = MetricPrefsStore.shared.settings
+        let originalWorkout = WorkoutPrefsStore.shared.settings
+        let originalCalibration = CalibrationStore.shared.settings
+        let originalCoach = CoachSettingsStore.shared.settings
+        let originalHealth = AppleHealthPrefsStore.shared.prefs
+        let key = ReadinessPrefsStore.prefsKey
+        defer {
+            ReadinessPrefsStore.shared.prefs = originalPrefs
+            MetricPrefsStore.shared.settings = originalMetric
+            WorkoutPrefsStore.shared.settings = originalWorkout
+            CalibrationStore.shared.settings = originalCalibration
+            CoachSettingsStore.shared.settings = originalCoach
+            AppleHealthPrefsStore.shared.prefs = originalHealth
+        }
+        ReadinessPrefsStore.shared.prefs = .default
+        let source = try TestSupport.makeContext()
+        SeedData.seedDemo(source, completeOnboarding: true)
+        for row in try source.fetch(FetchDescriptor<ReadinessDaily>()) {
+            source.delete(row)
+        }
+        try source.save()
+        let exportDefaults = makeSuiteDefaults(#function)
+        var disabled = ReadinessPrefs.default
+        disabled.masterEnabled = false
+        exportDefaults.set(try JSONEncoder().encode(disabled), forKey: key)
+        let archive = try await DataArchiveService.exportArchive(
+            context: source, defaults: exportDefaults, attachmentsDirectory: try makeTempDirectory()
+        )
+        let target = try TestSupport.makeContext()
+        let importDefaults = makeSuiteDefaults("readinessImport")
+        try await DataArchiveService.importArchive(
+            archive, context: target, defaults: importDefaults,
+            attachmentsDirectory: try makeTempDirectory(), refreshStores: true
+        )
+        XCTAssertFalse(ReadinessPrefsStore.shared.prefs.masterEnabled)
+        XCTAssertEqual(count(ReadinessDaily.self, target), 0, "disabled readiness must skip backfill")
+    }
+
     // MARK: - Attachments
 
     func testAttachmentsRoundTrip() async throws {

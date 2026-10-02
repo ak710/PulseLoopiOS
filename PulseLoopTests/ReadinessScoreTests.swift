@@ -299,6 +299,16 @@ final class ReadinessScoreTests: XCTestCase {
         XCTAssertEqual(try detail(2.1), "Yesterday's load 2.1× your usual")
     }
 
+    func testZeroSleepScoreRemainsAPresentContributor() throws {
+        let result = try scored(ReadinessInputs(
+            restingHeartRate: 55, restingHeartRateBaseline: 55, sleepScore: 0
+        ))
+        XCTAssertEqual(result.availablePoints, 55)
+        XCTAssertEqual(try contributor(.sleep, in: result).earned, 0)
+        XCTAssertFalse(result.missing.contains(.sleep))
+        XCTAssertEqual(result.score, 45)
+    }
+
     // MARK: - Robustness
 
     /// Garbage in must not produce a crash, a NaN, or a confidently wrong number. The service layer
@@ -341,7 +351,7 @@ final class ReadinessScoreTests: XCTestCase {
     /// If you changed the algorithm: bump `algorithmVersion`, update `docs/project/readiness.md`,
     /// then update this test.
     func testAlgorithmVersionIsPinned() {
-        XCTAssertEqual(ReadinessScore.algorithmVersion, 1)
+        XCTAssertEqual(ReadinessScore.algorithmVersion, 2)
         XCTAssertEqual(ReadinessScore.minAvailablePoints, 50)
         XCTAssertEqual(ReadinessScore.softFraction, 0.55)
     }

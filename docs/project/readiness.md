@@ -156,3 +156,5 @@ Stated plainly, because the point of this page is that you can judge the number 
   precisely so they can be argued with and improved.
 - **Training load is a blunt instrument** at 5 points: minutes only, with no notion of intensity.
   A proper training-load model is separate roadmap work.
+
+Algorithm version 2 corrects zero sleep scores: a captured score of 0 remains a contributor earning no points. Only missing or invalid sleep scores leave the denominator. Existing version 1 rows are recomputed.
