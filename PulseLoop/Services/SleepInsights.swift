@@ -77,8 +77,8 @@ enum SleepScore {
     /// lower for the same night and the band scores it slightly harsher than it should.
     ///
     /// Re-weighting the score is deliberately out of scope here: changing the bands changes every
-    /// stored night's score, which needs the versioned recompute that `ReadinessDaily` does for
-    /// readiness. Tracked as the sleep-score v2 rework; this pass only stops REM being dropped on
+    /// historical night's displayed score. Tracked as the sleep-score v2 rework; this pass
+    /// fixes stage coverage (raising affected zero-awake REM nights by about 7 points) and stops REM being dropped on
     /// the floor entirely.
     static func calculate(_ sleep: SleepSummary) -> SleepScoreResult {
         let total = sleep.session.totalMinutes > 0 ? Double(sleep.session.totalMinutes) : 0
@@ -269,7 +269,7 @@ enum SleepInsights {
         let awake: Int
         /// nil when **no** night in the range carried a REM stage, so the caller can omit the field
         /// rather than report an average of zero the ring never measured. Nights that do report REM
-        /// are averaged over the whole range, matching how the other three stages are treated.
+        /// are averaged over only the REM-bearing nights, so absent sensors never dilute the mean.
         let rem: Int?
     }
 
@@ -279,9 +279,8 @@ enum SleepInsights {
         let deep = valid.reduce(0) { $0 + $1.deepMinutes } / valid.count
         let light = valid.reduce(0) { $0 + $1.lightMinutes } / valid.count
         let awake = valid.reduce(0) { $0 + $1.awakeMinutes } / valid.count
-        let rem = valid.contains { $0.hasRemSignal }
-            ? valid.reduce(0) { $0 + $1.remMinutes } / valid.count
-            : nil
+        let remNights = valid.filter { $0.hasRemSignal }
+        let rem = remNights.isEmpty ? nil : remNights.reduce(0) { $0 + $1.remMinutes } / remNights.count
         return AverageStages(deep: deep, light: light, awake: awake, rem: rem)
     }
 

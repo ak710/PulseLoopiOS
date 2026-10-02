@@ -77,7 +77,7 @@ final class SleepRemStageTests: XCTestCase {
     /// so the coverage fix didn't just make the gate unconditionally true.
     func testPartiallyDescribedNightStillWithholdsAwakeSignal() throws {
         let context = try TestSupport.makeContext()
-        // 40 minutes of a 100-minute session are untagged, so coverage is 60% — under the 0.95 gate.
+        // 60 minutes of a 100-minute session are untagged, so coverage is 40% — under the 0.95 gate.
         let stages = Array(repeating: SleepStage.light, count: 40) + Array(repeating: .unknown, count: 60)
         let session = TestSupport.insertSleep(nightStart: night(0), stages: stages, into: context)
         let score = SleepScore.calculate(SleepService.summary(for: session, context: context))
@@ -137,4 +137,40 @@ final class SleepRemStageTests: XCTestCase {
         )
         XCTAssertTrue(DataQualityAnalyzer.warnings(inputs).contains(DataQualityAnalyzer.sleepDecoderNoteWithREM))
     }
+    func testMixedRingRangeDoesNotDiluteRemWithMissingSensors() throws {
+        let context = try TestSupport.makeContext()
+        _ = TestSupport.insertSleep(nightStart: night(-1), stages: remNight(), into: context)
+        _ = TestSupport.insertSleep(nightStart: night(-2), stages: noRemNight(), into: context)
+        let valid = SleepInsights.validSessions(SleepService.sleepRange(.week, context: context).sessions)
+        XCTAssertEqual(SleepInsights.averageStages(valid)?.rem, 20)
+    }
+
+    func testNightlySummaryIncludesObservedRemAndChangesItsCacheKey() throws {
+        let context = try TestSupport.makeContext()
+        let session = TestSupport.insertSleep(nightStart: night(-1), stages: remNight(), into: context)
+        let now = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: session.date)!
+        let before = try XCTUnwrap(CoachSummaryContextBuilder.sleepDay(context: context, now: now))
+        let packet = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(before.json.utf8)) as? [String: Any])
+        XCTAssertEqual(packet["rem_min"] as? Int, 20)
+        XCTAssertEqual(packet["rem_pct"] as? Int, 20)
+        let rangeBefore = CoachSummaryContextBuilder.sleepRange(.week, context: context, now: now)
+        let rem = try XCTUnwrap(SleepRepository.blocks(sessionId: session.id, context: context).first { $0.stage == .rem })
+        rem.durationMinutes += 1
+        try context.save()
+        let after = try XCTUnwrap(CoachSummaryContextBuilder.sleepDay(context: context, now: now))
+        let rangeAfter = CoachSummaryContextBuilder.sleepRange(.week, context: context, now: now)
+        XCTAssertNotEqual(before.signature, after.signature)
+        XCTAssertNotEqual(rangeBefore.signature, rangeAfter.signature)
+    }
+
+    func testNightlySummaryOmitsUnmeasuredRem() throws {
+        let context = try TestSupport.makeContext()
+        let session = TestSupport.insertSleep(nightStart: night(-1), stages: noRemNight(), into: context)
+        let now = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: session.date)!
+        let built = try XCTUnwrap(CoachSummaryContextBuilder.sleepDay(context: context, now: now))
+        let packet = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(built.json.utf8)) as? [String: Any])
+        XCTAssertNil(packet["rem_min"])
+        XCTAssertNil(packet["rem_pct"])
+    }
+
 }
